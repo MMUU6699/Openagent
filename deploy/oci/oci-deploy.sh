@@ -10,6 +10,7 @@ root=/home/ubuntu/openagent-deploy
 stage="$root/incoming/$sha"
 live=/home/ubuntu/open-agent/deploy/oci
 docker=/snap/bin/docker
+trap 'rm -f "$stage/images.tar.gz"' EXIT
 
 exec 9>"$root/deploy.lock"
 flock -n 9 || { echo 'Another OpenAgent deployment is running' >&2; exit 1; }

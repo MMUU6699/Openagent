@@ -59,6 +59,7 @@ config.json
 deploy/oci/DEPLOYMENT_REPORT.md
 deploy/oci/ORACLE_RECOVERY_SUPPORT.txt
 deploy/oci/ORACLE_COMMUNITY_POST.txt
+deploy/oci/.release.env
 *.tar.gz
 *.pem
 *.key
