@@ -14,7 +14,7 @@ trap 'rm -f "$stage/images.tar.gz"' EXIT
 
 exec 9>"$root/deploy.lock"
 flock -n 9 || { echo 'Another OpenAgent deployment is running' >&2; exit 1; }
-for path in "$stage/images.tar.gz" "$stage/compose.yml" "$stage/compose.autodeploy.yml" "$stage/openagent.service" "$live/.env" "$live/config.json" "$live/backup.sh"; do
+for path in "$stage/images.tar.gz" "$stage/compose.yml" "$stage/compose.autodeploy.yml" "$stage/openagent.service" "$stage/backup.sh" "$live/.env" "$live/config.json" "$live/backup.sh"; do
   test -s "$path" || { echo "Required deployment file missing: $path" >&2; exit 1; }
 done
 test -x "$docker" || { echo 'Snap Docker is unavailable' >&2; exit 1; }
@@ -27,17 +27,18 @@ gzip -dc "$stage/images.tar.gz" | "$docker" load >/dev/null
 "$docker" image inspect "openagent:$sha" "openagent-sandbox:$sha" >/dev/null
 cd "$live"
 "$docker" compose -f compose.yml config --quiet
-/bin/bash "$live/backup.sh"
 
 rollback_dir=$(mktemp -d "$root/rollback-$sha-XXXXXX")
 cp -p compose.yml "$rollback_dir/compose.yml"
 if test -f compose.autodeploy.yml; then cp -p compose.autodeploy.yml "$rollback_dir/compose.autodeploy.yml"; fi
 if test -f .release.env; then cp -p .release.env "$rollback_dir/release.env"; fi
+cp -p backup.sh "$rollback_dir/backup.sh"
 if test -f /etc/systemd/system/openagent.service; then cp -p /etc/systemd/system/openagent.service "$rollback_dir/openagent.service"; fi
 armed=1
 rollback() {
   result=$?
   trap - ERR
+  set +e
   if (( armed )); then
     echo 'Deployment failed; restoring prior service definitions' >&2
     cp -p "$rollback_dir/compose.yml" "$live/compose.yml"
@@ -58,10 +59,15 @@ rollback() {
       cp -p "$rollback_dir/openagent.service" /etc/systemd/system/openagent.service
       systemctl daemon-reload || true
     fi
+    cp -p "$rollback_dir/backup.sh" "$live/backup.sh"
   fi
   exit "$result"
 }
 trap rollback ERR
+
+# Do not let the old application write to the database between the backup and
+# the new image's schema migrations. The backup script restarts it on failure.
+/bin/bash "$stage/backup.sh" --leave-app-stopped
 
 install -m 0644 "$stage/compose.yml" "$live/compose.yml"
 install -m 0644 "$stage/compose.autodeploy.yml" "$live/compose.autodeploy.yml"
@@ -78,6 +84,7 @@ done
 (( healthy == 1 )) || { echo 'Application did not pass its local HTTP health check' >&2; false; }
 
 # Only update boot recovery after the new release has passed health checks.
+install -m 0755 "$stage/backup.sh" "$live/backup.sh"
 install -m 0644 "$stage/openagent.service" /etc/systemd/system/openagent.service
 systemctl daemon-reload
 systemctl enable openagent.service >/dev/null

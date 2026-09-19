@@ -1,12 +1,19 @@
 #!/bin/bash
 set -euo pipefail
 umask 077
+leave_stopped=0
+case "${1:-}" in
+  '') ;;
+  --leave-app-stopped) leave_stopped=1 ;;
+  *) echo 'Usage: backup.sh [--leave-app-stopped]' >&2; exit 2 ;;
+esac
+backup_complete=0
 cd /home/ubuntu/open-agent/deploy/oci
 backup_root=/home/ubuntu/openagent-backups
 mkdir -p "$backup_root"
 chmod 700 "$backup_root"
 backup_dir=$(mktemp -d "$backup_root/backup-$(date -u +%Y%m%dT%H%M%SZ)-XXXX")
-trap '/snap/bin/docker compose start app >/dev/null' EXIT
+trap 'if (( backup_complete == 0 || leave_stopped == 0 )); then /snap/bin/docker compose start app >/dev/null; fi' EXIT
 /snap/bin/docker compose stop app >/dev/null
 /snap/bin/docker compose exec -T postgres pg_dump -U openagent -d open_agent -Fc > "$backup_dir/database.dump"
 /snap/bin/docker run --rm --network none -v openagent_app_data:/data:ro alpine:3.22 tar czf - -C /data . > "$backup_dir/files.tar.gz"
@@ -24,3 +31,4 @@ for item in items[:-7]:
     assert item.resolve().parent == root
     shutil.rmtree(item)
 PY
+backup_complete=1

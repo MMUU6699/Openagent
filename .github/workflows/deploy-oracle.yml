@@ -74,7 +74,7 @@ jobs:
           stage="/home/ubuntu/openagent-deploy/incoming/${GITHUB_SHA}"
           docker save "openagent:${GITHUB_SHA}" "openagent-sandbox:${GITHUB_SHA}" | gzip -1 > images.tar.gz
           ssh "${ssh_args[@]}" "$remote" "mkdir -p '$stage'"
-          scp "${ssh_args[@]}" images.tar.gz deploy/oci/compose.yml deploy/oci/compose.autodeploy.yml deploy/oci/openagent.service deploy/oci/oci-deploy.sh "${remote}:${stage}/"
+          scp "${ssh_args[@]}" images.tar.gz deploy/oci/compose.yml deploy/oci/compose.autodeploy.yml deploy/oci/openagent.service deploy/oci/backup.sh deploy/oci/oci-deploy.sh "${remote}:${stage}/"
           ssh "${ssh_args[@]}" "$remote" "sudo /bin/bash '${stage}/oci-deploy.sh' '${GITHUB_SHA}'"
 
       - name: Verify public endpoint
