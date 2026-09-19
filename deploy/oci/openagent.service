@@ -1,0 +1,17 @@
+[Unit]
+Description=OpenAgent Docker Compose stack
+Requires=snap.docker.dockerd.service
+After=snap.docker.dockerd.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/ubuntu/open-agent/deploy/oci
+EnvironmentFile=/home/ubuntu/open-agent/deploy/oci/.release.env
+ExecStart=/snap/bin/docker compose -f compose.yml -f compose.autodeploy.yml up -d --no-build
+ExecStop=/snap/bin/docker compose -f compose.yml -f compose.autodeploy.yml stop
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

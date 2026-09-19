@@ -1,0 +1,8 @@
+[Unit]
+Description=OpenAgent consistent database and files backup
+After=openagent.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /home/ubuntu/open-agent/deploy/oci/backup.sh
+UMask=0077

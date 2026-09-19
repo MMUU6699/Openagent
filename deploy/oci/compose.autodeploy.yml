@@ -1,0 +1,9 @@
+# Layered on compose.yml after a CI release has been downloaded onto the VM.
+# The production .env, config.json, named volumes, and network topology stay on the VM.
+services:
+  app-init:
+    image: ${OPENAGENT_APP_IMAGE:?release image required}
+  app:
+    image: ${OPENAGENT_APP_IMAGE:?release image required}
+  sandbox:
+    image: ${OPENAGENT_SANDBOX_IMAGE:?release image required}

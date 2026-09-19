@@ -1,0 +1,12 @@
+**/node_modules
+.git
+.yarn
+target
+blocksuite
+tools
+scripts
+**/.env*
+**/config.json
+**/*.log
+**/*.node
+**/__pycache__

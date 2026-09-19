@@ -1,0 +1,36 @@
+import assert from 'node:assert/strict';
+import {randomBytes} from 'node:crypto';
+const base='https://145.241.159.235.nip.io';
+const email=`auth-route-check-${Date.now()}@example.com`;
+const password=randomBytes(24).toString('base64url');
+async function post(path,body,cookie='') {
+  return fetch(base+'/api/auth/'+path,{method:'POST',headers:{'Content-Type':'application/json',Cookie:cookie},body:JSON.stringify(body)});
+}
+let response=await post('preflight',{email});
+let data=await response.json();
+assert(data.canSignIn && !data.registered);
+console.log('new_email_preflight=PASS');
+response=await post('register',{email,password:'short'});
+assert(!response.ok);
+console.log('weak_password_rejected=PASS');
+response=await post('register',{email,password});
+assert.equal(response.status,201);
+const cookies=response.headers.getSetCookie();
+assert(cookies.some(c=>c.includes('HttpOnly')&&c.includes('Secure')));
+const cookie=cookies.map(c=>c.split(';')[0]).join('; ');
+let session=await fetch(base+'/api/auth/session',{headers:{Cookie:cookie}});
+assert.equal((await session.json()).user.email,email);
+console.log('registration_and_session=PASS');
+response=await post('preflight',{email});
+data=await response.json();
+assert(data.registered && data.hasPassword && data.canSignIn);
+console.log('existing_email_preflight=PASS');
+response=await post('register',{email,password});
+assert(!response.ok);
+console.log('duplicate_registration_rejected=PASS');
+response=await post('sign-in',{email,password:'wrong-password'});
+assert(!response.ok);
+console.log('wrong_password_rejected=PASS');
+response=await post('sign-in',{email,password});
+assert(response.ok);
+console.log('password_login=PASS');

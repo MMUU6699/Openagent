@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {PrismaClient} from '@prisma/client';
+const state = JSON.parse(await readFile('/app/data/deployment-check.json','utf8'));
+const db = new PrismaClient();
+assert(await db.user.findUnique({where:{email:state.email}}));
+assert(await db.aiUserDocs.findFirst({where:{docId:state.docId}}));
+assert(await db.aiSession.findUnique({where:{id:state.sessionId}}));
+console.log('account_chat_document_persistence=PASS');
+const rows = await db.$queryRawUnsafe('SELECT vector_dims(embedding) AS dimensions FROM ai_user_doc_embeddings LIMIT 1');
+assert.equal(rows[0]?.dimensions,1024);
+console.log('document_embedding_1024=PASS');
+const attachment=JSON.parse(await readFile('/app/data/deployment-attachment-check.json','utf8'));
+const file=await fetch(attachment.url);
+assert.equal(await file.text(),attachment.content);
+console.log('attachment_persistence=PASS');
+await db.$disconnect();

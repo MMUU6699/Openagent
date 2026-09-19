@@ -1,0 +1,84 @@
+name: Build and deploy OpenAgent to Oracle
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oracle-production
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install locked dependencies
+        run: |
+          corepack enable
+          yarn install --immutable
+
+      - name: Check Arabic and OAuth logic
+        run: |
+          node deploy/oci/check-language-unit.cjs
+          node deploy/oci/check-oauth-unit.cjs
+
+      - name: Build frontend and backend
+        run: |
+          yarn workspace @afk/app build
+          yarn workspace @afk/server build
+
+      - name: Build ARM64 release images
+        run: |
+          docker build --file deploy/oci/Dockerfile --tag "openagent:${GITHUB_SHA}" .
+          docker build --file deploy/oci/sandbox.Dockerfile --tag "openagent-sandbox:${GITHUB_SHA}" deploy/oci
+
+      # Keep CI useful while the OCI instance is unavailable. Set this repository
+      # variable to true only after the VM is healthy and SSH secrets are installed.
+      - name: Check deployment configuration
+        if: vars.OCI_DEPLOY_ENABLED == 'true'
+        env:
+          OCI_HOST: ${{ secrets.OCI_HOST }}
+          OCI_SSH_PRIVATE_KEY: ${{ secrets.OCI_SSH_PRIVATE_KEY }}
+          OCI_KNOWN_HOSTS: ${{ secrets.OCI_KNOWN_HOSTS }}
+        run: |
+          test -n "$OCI_HOST" || { echo '::error::OCI_HOST is missing'; exit 1; }
+          test -n "$OCI_SSH_PRIVATE_KEY" || { echo '::error::OCI_SSH_PRIVATE_KEY is missing'; exit 1; }
+          test -n "$OCI_KNOWN_HOSTS" || { echo '::error::OCI_KNOWN_HOSTS is missing'; exit 1; }
+
+      - name: Transfer and activate verified release
+        if: vars.OCI_DEPLOY_ENABLED == 'true'
+        env:
+          OCI_HOST: ${{ secrets.OCI_HOST }}
+          OCI_SSH_PRIVATE_KEY: ${{ secrets.OCI_SSH_PRIVATE_KEY }}
+          OCI_KNOWN_HOSTS: ${{ secrets.OCI_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$OCI_SSH_PRIVATE_KEY" > "$HOME/.ssh/oci_deploy"
+          chmod 600 "$HOME/.ssh/oci_deploy"
+          printf '%s\n' "$OCI_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          ssh_args=(-i "$HOME/.ssh/oci_deploy" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o BatchMode=yes)
+          remote="ubuntu@${OCI_HOST}"
+          stage="/home/ubuntu/openagent-deploy/incoming/${GITHUB_SHA}"
+          docker save "openagent:${GITHUB_SHA}" "openagent-sandbox:${GITHUB_SHA}" | gzip -1 > images.tar.gz
+          ssh "${ssh_args[@]}" "$remote" "mkdir -p '$stage'"
+          scp "${ssh_args[@]}" images.tar.gz deploy/oci/compose.yml deploy/oci/compose.autodeploy.yml deploy/oci/openagent.service deploy/oci/oci-deploy.sh "${remote}:${stage}/"
+          ssh "${ssh_args[@]}" "$remote" "sudo /bin/bash '${stage}/oci-deploy.sh' '${GITHUB_SHA}'"
+
+      - name: Verify public endpoint
+        if: vars.OCI_DEPLOY_ENABLED == 'true' && vars.OCI_PUBLIC_URL != ''
+        env:
+          OCI_PUBLIC_URL: ${{ vars.OCI_PUBLIC_URL }}
+        run: curl --fail --silent --show-error --max-time 20 "${OCI_PUBLIC_URL%/}/api/auth/session" > /dev/null
